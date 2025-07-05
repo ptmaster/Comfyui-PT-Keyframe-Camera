@@ -17,6 +17,9 @@ PT Keyframe Camera
 - 完全可以应用到任何视频制作中,无论是直接输出视频,还是生成运动参考视频或者深度和骨骼等控制线条.
 
 ## 🎮 使用指南
+一个经典的工作流示例:
+
+![workflow](https://github.com/user-attachments/assets/96869bff-7fc2-4b79-9892-a44014dbfca5)
 
 ### 节点参数说明
 

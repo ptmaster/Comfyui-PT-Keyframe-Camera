@@ -22,6 +22,10 @@ PT Keyframe Camera
 一个经典的工作流示例:
 ![workflow](https://github.com/user-attachments/assets/dcd64105-91c9-4b96-996c-d892f371f588)
 
+来自爱屋大佬AIWOOD充满创意的视频科普:
+https://www.bilibili.com/video/BV1363dzXEuw/?vd_source=8c0c4ef61dc5c5d2356d3037a952ed3b
+
+![QQ_1751738378004](https://github.com/user-attachments/assets/d6f9fda1-802f-49d2-8175-8b4afadf1c03)
 
 ### 节点参数说明
 

@@ -56,6 +56,13 @@ https://github.com/user-attachments/assets/6495774f-6067-425b-a65f-da50e6dc7c52
 
 https://github.com/user-attachments/assets/ed12465d-e13a-4e6f-83e8-d80499f69353
 
+### 来自用户 穿靴子的猫 制作的大幅度运镜视频
+
+
+https://github.com/user-attachments/assets/0e3330b7-47f6-4774-ae8f-725e60483d61
+
+
+
 ## 🚧 常见问题解答
 
 ### Q: 为什么我的图像移动方向不对？

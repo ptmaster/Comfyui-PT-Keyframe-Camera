@@ -24,6 +24,7 @@ PT Keyframe Camera
 参数名	类型	默认值	说明
 
 start_rotation	INT	0	起始帧旋转角度（度），正=顺时针，负=逆时针
+
 end_rotation	INT	0	结束帧旋转角度（度），正=顺时针，负=逆时针
 
 🌟 向右旋转60度,在通义万相WAN中进行骨骼图输出,并通过VACE控制节点最终的效果展示

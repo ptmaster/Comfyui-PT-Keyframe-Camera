@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import math
 
 MAX_RESOLUTION = 8192
 
@@ -11,16 +12,19 @@ class PT_KeyframeCamera:
                 "images": ("IMAGE",),
                 "start_frame": ("INT", {"default": 0, "min": 0, "max": 9999999, "step": 1}),
                 "end_frame": ("INT", {"default": 24, "min": 0, "max": 9999999, "step": 1}),
-                # 允许负值位移的关键修改
                 "start_horizontal_shift": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1, 
                                                 "tooltip": "Horizontal shift at start frame (positive=right, negative=left)"}),
                 "start_vertical_shift": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1,
                                               "tooltip": "Vertical shift at start frame (positive=down, negative=up)"}),
+                "start_rotation": ("INT", {"default": 0, "min": -360, "max": 360, "step": 1,
+                                        "tooltip": "Rotation angle at start frame (degrees)"}),
                 "start_zoom": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
                 "end_horizontal_shift": ("INT", {"default": 100, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1,
                                                "tooltip": "Horizontal shift at end frame (positive=right, negative=left)"}),
                 "end_vertical_shift": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1,
                                              "tooltip": "Vertical shift at end frame (positive=down, negative=up)"}),
+                "end_rotation": ("INT", {"default": 0, "min": -360, "max": 360, "step": 1,
+                                      "tooltip": "Rotation angle at end frame (degrees)"}),
                 "end_zoom": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
                 "zoom_origin": (["center", "top-left", "top-right", "bottom-left", "bottom-right"], {"default": "center"}),
                 "pad_mode": (["color", "edge"], {"default": "color"}),
@@ -32,11 +36,79 @@ class PT_KeyframeCamera:
     RETURN_NAMES = ("images", "masks")
     FUNCTION = "apply_camera_movement"
     CATEGORY = "KJNodes/animation"
-    DESCRIPTION = "Keyframe-based camera movement (pan & zoom) for image sequences"
+    DESCRIPTION = "Keyframe-based camera movement (pan, zoom & rotation) for image sequences"
+
+    def apply_rotation(self, image, angle_degrees, bg_color):
+        """Apply rotation to an image around its center point"""
+        if angle_degrees % 360 == 0:
+            return image  # 无旋转
+        
+        # 转换为弧度
+        angle_rad = math.radians(angle_degrees)
+        
+        # 获取图像尺寸
+        B, H, W, C = image.shape
+        
+        # 创建旋转矩阵
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+        
+        # 计算旋转后的边界框
+        new_W = int(math.ceil(abs(W * cos_a) + abs(H * sin_a)))
+        new_H = int(math.ceil(abs(W * sin_a) + abs(H * cos_a)))
+        
+        # 创建旋转后的画布
+        bg_tensor = torch.tensor(bg_color, dtype=image.dtype, device=image.device).view(1, 1, 1, 3)
+        rotated_canvas = bg_tensor.expand(B, new_H, new_W, 3).clone()
+        
+        # 计算中心点偏移
+        center_x = W / 2
+        center_y = H / 2
+        new_center_x = new_W / 2
+        new_center_y = new_H / 2
+        
+        # 生成网格坐标
+        y_grid, x_grid = torch.meshgrid(
+            torch.arange(new_H, device=image.device, dtype=torch.float32),
+            torch.arange(new_W, device=image.device, dtype=torch.float32),
+            indexing='ij'
+        )
+        
+        # 计算反向映射坐标
+        x_offset = x_grid - new_center_x
+        y_offset = y_grid - new_center_y
+        
+        # 应用反向旋转
+        x_original = center_x + x_offset * cos_a + y_offset * sin_a
+        y_original = center_y - x_offset * sin_a + y_offset * cos_a
+        
+        # 归一化坐标到 [-1, 1]
+        x_normalized = (x_original / (W - 1)) * 2 - 1
+        y_normalized = (y_original / (H - 1)) * 2 - 1
+        
+        # 创建采样网格
+        grid = torch.stack([x_normalized, y_normalized], dim=-1).unsqueeze(0).repeat(B, 1, 1, 1)
+        
+        # 使用双线性插值采样
+        rotated_image = F.grid_sample(
+            image.permute(0, 3, 1, 2),  # [B, C, H, W]
+            grid,
+            mode='bilinear',
+            padding_mode='zeros',
+            align_corners=True
+        )
+        
+        # 转回原始格式 [B, H, W, C]
+        rotated_image = rotated_image.permute(0, 2, 3, 1)
+        
+        # 将旋转后的图像放置在画布上
+        rotated_canvas = rotated_image
+        
+        return rotated_canvas
 
     def apply_camera_movement(self, images, start_frame, end_frame, 
-                             start_horizontal_shift, start_vertical_shift, start_zoom,
-                             end_horizontal_shift, end_vertical_shift, end_zoom,
+                             start_horizontal_shift, start_vertical_shift, start_rotation, start_zoom,
+                             end_horizontal_shift, end_vertical_shift, end_rotation, end_zoom,
                              zoom_origin, pad_mode, bg_color):
         
         # 确保输入是图像序列
@@ -76,9 +148,10 @@ class PT_KeyframeCamera:
                 total_frames = max(1, (end_frame - start_frame))
                 progress = (current_frame - start_frame) / total_frames
             
-            # 插值计算当前帧的位移和缩放
+            # 插值计算当前帧的参数
             current_h_shift = int(round(start_horizontal_shift + (end_horizontal_shift - start_horizontal_shift) * progress))
             current_v_shift = int(round(start_vertical_shift + (end_vertical_shift - start_vertical_shift) * progress))
+            current_rotation = int(round(start_rotation + (end_rotation - start_rotation) * progress))
             current_zoom = start_zoom + (end_zoom - start_zoom) * progress
             
             # 计算缩放后的尺寸
@@ -89,6 +162,12 @@ class PT_KeyframeCamera:
             img = images[frame_idx].unsqueeze(0).permute(0, 3, 1, 2)  # [1, C, H, W]
             scaled = F.interpolate(img, size=(new_H, new_W), mode='bilinear', align_corners=False)
             scaled_tensor = scaled.permute(0, 2, 3, 1)  # [1, new_H, new_W, C]
+            
+            # 应用旋转
+            if current_rotation % 360 != 0:
+                scaled_tensor = self.apply_rotation(scaled_tensor, current_rotation, bg_rgb)
+                # 更新旋转后尺寸
+                _, new_H, new_W, _ = scaled_tensor.shape
             
             # 计算缩放后的偏移
             origin_offset_x, origin_offset_y = 0, 0
@@ -132,7 +211,13 @@ class PT_KeyframeCamera:
             # 处理边缘填充模式
             if pad_mode == "edge" and (src_x1 > 0 or src_y1 > 0 or src_x2 < new_W or src_y2 < new_H):
                 # 创建扩展的图像 (增加边缘填充)
-                pad_size = max(abs(end_horizontal_shift), abs(end_vertical_shift), 50)  # 安全边界
+                pad_size = max(
+                    abs(end_horizontal_shift), 
+                    abs(end_vertical_shift), 
+                    int(max(new_W, new_H) * 0.1),  # 根据图像尺寸动态计算
+                    50  # 最小安全边界
+                )
+                
                 padded_scaled = torch.zeros((1, new_H + pad_size*2, new_W + pad_size*2, C), 
                                           dtype=scaled_tensor.dtype, device=scaled_tensor.device)
                 
